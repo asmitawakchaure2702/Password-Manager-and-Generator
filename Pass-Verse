@@ -1,0 +1,541 @@
+# ===============================
+# Imports and Setup
+# ===============================
+import random
+import sqlite3
+import hashlib
+from tkinter import *
+from tkinter import simpledialog
+from tkinter.font import Font
+from functools import partial
+import uuid
+import pyperclip
+import base64
+import os
+from tkinter import ttk
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.backends import default_backend
+from cryptography.fernet import Fernet
+from tkinter import messagebox
+
+# ===============================
+# Database Setup
+# ===============================
+db_error = False
+try:
+    with sqlite3.connect("password-vault.db") as db:
+        cursor=db.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS masterpassword(
+    id INTEGER PRIMARY KEY,
+    password TEXT NOT NULL,
+    recoverykey TEXT NOT NULL);
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS vault(
+    id INTEGER PRIMARY KEY,
+    ACCOUNT TEXT NOT NULL,
+    USERNAME TEXT NOT NULL,
+    PASSWORD TEXT NOT NULL);
+    """)
+except Exception as e:
+    messagebox.showerror("Database Error", f"An error occurred while accessing the database: {e}")
+    db_error = True
+
+# ===============================
+# Encryption Functions
+# ===============================
+def encrypt(message:bytes,key:bytes)-> bytes:
+    try:
+        return Fernet(key).encrypt(message)
+    except Exception as e:
+        messagebox.showerror("Encryption Error", f"An error occurred during encryption: {e}")
+        return b''
+
+def decrypt(message:bytes,token:bytes)-> bytes:
+    try:
+        return Fernet(token).decrypt(message)
+    except Exception as e:
+        messagebox.showerror("Decryption Error", f"An error occurred during decryption: {e}")
+        return b''
+
+# ===============================
+# Main Application
+# ===============================
+# Create main window first
+window=Tk()
+window.geometry('300x350')
+window.style=ttk.Style(window)
+window.title("PASSWORD GENERATOR")
+window.resizable(0,0)
+
+# Create variables after window is created
+no_of_letters=IntVar()
+no_of_letters.set(3)
+no_of_digits=IntVar()
+no_of_digits.set(3)
+no_of_symbols=IntVar()
+no_of_symbols.set(3)
+password_string=StringVar()
+strength_string=StringVar()
+strength_string.set('')
+
+# ===============================
+# Password Generator Functions
+# ===============================
+def evaluate_strength(password):
+    length = len(password)
+    has_lower = any(c.islower() for c in password)
+    has_upper = any(c.isupper() for c in password)
+    has_digit = any(c.isdigit() for c in password)
+    has_symbol = any(not c.isalnum() for c in password)
+    score = sum([has_lower, has_upper, has_digit, has_symbol])
+    if length < 8 or score < 2:
+        return 'Weak'
+    elif length < 12 or score < 3:
+        return 'Medium'
+    else:
+        return 'Strong'
+
+def Copy_password():
+    pyperclip.copy(password_string.get())
+    copy['state']=DISABLED
+
+def generate():
+    copy['state']=NORMAL
+    password=[]
+    digits=['1','2','3','4','5','6','7','8','9','0']
+    letters=['a', 'b', 'c', 'd', 'e', 'f', 'g','h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',  'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z','A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
+    symbols=['#','$','%','&','(',')','*','+','-','.','/',':','<','=','>','?','@','[',']','^','_','{','}','/' ]
+    for x in range(no_of_letters.get()):
+        password.append(random.choice(letters))
+    for x in range(no_of_digits.get()):
+        password.append(random.choice(digits))
+    for x in range(no_of_symbols.get()):
+        password.append(random.choice(symbols))
+    random.shuffle(password)
+    pwd = "".join(password)
+    password_string.set(pwd)
+    strength_string.set(f"Strength: {evaluate_strength(pwd)}")
+
+# ===============================
+# Vault Functions
+# ===============================
+def openVault():
+    if db_error:
+        messagebox.showerror("Error", "Cannot open vault due to database error.")
+        return
+        
+    db = sqlite3.connect("password-vault.db")
+    cursor = db.cursor()
+        
+    def on_closing():
+        opnvault_btn['state']=NORMAL
+        db.close()
+        window2.destroy()
+
+    backend=default_backend()
+    salt=b'2444'
+    kdf=PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+        backend=backend
+    )
+    def encrypt(message:bytes,key:bytes)-> bytes:
+        return Fernet(key).encrypt(message)
+
+    def decrypt(message:bytes,token:bytes)-> bytes:
+        return Fernet(token).decrypt(message)
+
+    def popUp(text,previous_txt=""):
+        answer=simpledialog.askstring("input string",prompt=text,initialvalue=str(previous_txt))
+        return answer
+
+    window2=Toplevel(window)
+    window2.protocol("WM_DELETE_WINDOW",on_closing)
+
+    window2.title("PASS VERSE")
+    def hashPassword(input):
+        return hashlib.sha256(input).hexdigest()
+
+    def firstScreen():
+        for widget in window2.winfo_children():
+            widget.destroy()
+        window2.geometry("250x150")
+
+        lbl=ttk.Label(window2,text="Create Master Password")
+        lbl.config(anchor=CENTER)
+        lbl.pack()
+
+        Mstr_pass_txt=ttk.Entry(window2,width=20,show="*")
+        Mstr_pass_txt.pack()
+        Mstr_pass_txt.focus()
+
+        lbl1=ttk.Label(window2,text="Confirm Master Password")
+        lbl1.pack()
+
+        Mstr_pass_txt2=ttk.Entry(window2,width=20,show="*")
+        Mstr_pass_txt2.pack()
+
+        lbl2=ttk.Label(window2,text="")
+        lbl2.pack()
+
+        def savePassword():
+            if Mstr_pass_txt.get()==Mstr_pass_txt2.get() :
+                sql="DELETE FROM masterpassword WHERE id=1"
+                cursor.execute(sql)
+
+                hashed_pass=hashPassword(Mstr_pass_txt.get().encode('utf-8'))
+                key=str(uuid.uuid4().hex)
+
+                recoverykey=hashPassword(key.encode('utf-8'))
+                global encryptionkey, master_password
+                master_password = Mstr_pass_txt.get()
+                encryptionkey= base64.urlsafe_b64encode(kdf.derive(master_password.encode('utf-8')))
+
+                insert_pass="""INSERT INTO masterpassword(password,recoverykey)
+                VALUES(?,?)"""
+                cursor.execute(insert_pass,((hashed_pass),(recoverykey)))
+                db.commit()
+                recoveryScreen(key)
+            else:
+                Mstr_pass_txt2.delete(0,'end')
+                lbl2.config(text="TRY AGAIN !")
+
+        btn=ttk.Button(window2,text="SAVE",command=savePassword)
+        btn.pack(pady=10)
+
+    def recoveryScreen(key):
+        for widget in window2.winfo_children():
+            widget.destroy()
+        window2.geometry("250x150")
+
+        lbl=ttk.Label(window2,text="Save Recovery Key")
+        lbl.config(anchor=CENTER)
+        lbl.pack()
+
+        lbl1=ttk.Label(window2,text=key)
+        lbl1.config(anchor=CENTER)
+        lbl1.pack()
+        def copykey():
+            pyperclip.copy(lbl1.cget("text"))
+
+        btn=ttk.Button(window2,text="Copy key",command=copykey)
+        btn.pack(pady=10)
+        def done():
+            passwordvault()
+        btn=ttk.Button(window2,text="Done",command=done)
+        btn.pack(pady=10)
+
+    def resetScreen():
+        for widget in window2.winfo_children():
+            widget.destroy()
+        window2.geometry("250x150")
+
+        lbl=ttk.Label(window2,text="Enter Recovery Key")
+        lbl.config(anchor=CENTER)
+        lbl.pack()
+        txt=ttk.Entry(window2,width=20)
+        txt.pack()
+        txt.focus()
+
+        lbl1=ttk.Label(window2)
+        lbl1.config(anchor=CENTER)
+        lbl1.pack()
+        def getrecoverykey():
+            recoverykeycheck=hashPassword((txt.get().encode('utf-8')))
+            cursor.execute("SELECT * FROM masterpassword WHERE id=1 AND recoverykey=?",[(recoverykeycheck)])
+            return cursor.fetchall()
+
+        def checkRecovery():
+            checked=getrecoverykey()
+            if checked:
+                firstScreen()
+            else:
+                txt.delete(0,'end')
+                lbl1.config(text="wrong key")
+        btn=ttk.Button(window2,text="Check key",command=checkRecovery)
+        btn.pack(pady=10)
+
+    def loginScreen():
+        for widget in window2.winfo_children():
+            widget.destroy()
+        window2.geometry("250x150")
+
+        lbl=ttk.Label(window2,text="Enter Master Password")
+        lbl.config(anchor=CENTER)
+        lbl.pack()
+
+        Mstr_pass_txt=ttk.Entry(window2,width=20,show="*")
+        Mstr_pass_txt.pack()
+        Mstr_pass_txt.focus()
+
+        lbl1=ttk.Label(window2,text="")
+        lbl1.pack()
+
+        def getMasterPassword():
+            checkHashedpass = hashPassword(Mstr_pass_txt.get().encode('utf-8'))
+            cursor.execute("SELECT * FROM masterpassword WHERE id=1 AND password=?",[(checkHashedpass)])
+            return cursor.fetchall()
+
+        def checkPassword():
+            match=getMasterPassword()
+            if match:
+                global encryptionkey, master_password
+                master_password = Mstr_pass_txt.get()
+                encryptionkey= base64.urlsafe_b64encode(kdf.derive(master_password.encode('utf-8')))
+                passwordvault()
+            else:
+                Mstr_pass_txt.delete(0,'end')
+                lbl1.config(text="Wrong Password !")
+
+        def resetPassword():
+            resetScreen()
+        login_btn=ttk.Button(window2,text="Login",command=checkPassword)
+        login_btn.pack(pady=10)
+
+        login_btn=ttk.Button(window2,text="Reset Password",command=resetPassword)
+        login_btn.pack(pady=10)
+
+    def passwordvault():
+        for widget in window2.winfo_children():
+            widget.destroy()
+
+        def copyPass(password):
+            password=decrypt(password, encryptionkey).decode('utf-8')
+            pyperclip.copy(password)
+        def copyursm(username):
+            username=decrypt(username, encryptionkey).decode('utf-8')
+            pyperclip.copy(username)
+
+        def updateEntry(acc_id, account, username, password):
+            nonlocal db, cursor
+            update_window = Toplevel(window2)
+            update_window.title("Update Entry")
+            update_window.geometry("300x200")
+
+            # Decrypt current values
+            prev_acc = decrypt(account, encryptionkey).decode('utf-8')
+            prev_usnme = decrypt(username, encryptionkey).decode('utf-8')
+            prev_pass = decrypt(password, encryptionkey).decode('utf-8')
+
+            # Account
+            ttk.Label(update_window, text="Account:").pack(pady=(10,0))
+            account_entry = ttk.Entry(update_window, width=30)
+            account_entry.insert(0, prev_acc)
+            account_entry.pack()
+            account_entry.focus()
+
+            # Username
+            ttk.Label(update_window, text="Username:").pack(pady=(10,0))
+            username_entry = ttk.Entry(update_window, width=30)
+            username_entry.insert(0, prev_usnme)
+            username_entry.pack()
+
+            # Password
+            ttk.Label(update_window, text="Password:").pack(pady=(10,0))
+            password_entry = ttk.Entry(update_window, width=30, show="*")
+            password_entry.insert(0, prev_pass)
+            password_entry.pack()
+
+            def save_updated_entry():
+                new_account = account_entry.get()
+                new_username = username_entry.get()
+                new_password = password_entry.get()
+
+                if not new_account or not new_username or not new_password:
+                    messagebox.showerror("Error", "All fields are required!", parent=update_window)
+                    return
+
+                encrypted_account = encrypt(new_account.encode('utf-8'), encryptionkey)
+                encrypted_username = encrypt(new_username.encode('utf-8'), encryptionkey)
+                encrypted_password = encrypt(new_password.encode('utf-8'), encryptionkey)
+
+                if not encrypted_account or not encrypted_username or not encrypted_password:
+                    messagebox.showerror("Encryption Error", "Failed to encrypt one or more fields.", parent=update_window)
+                    return
+
+                cursor.execute("UPDATE vault SET ACCOUNT=?, USERNAME=?, PASSWORD=? WHERE id=?", (encrypted_account, encrypted_username, encrypted_password, acc_id))
+                db.commit()
+                update_window.destroy()
+                passwordvault()
+
+            save_btn = ttk.Button(update_window, text="Save", command=save_updated_entry)
+            save_btn.pack(side="left", padx=(10, 5), pady=10)
+            
+            cancel_btn = ttk.Button(update_window, text="Cancel", command=update_window.destroy)
+            cancel_btn.pack(side="right", padx=(5, 10), pady=10)
+            
+            update_window.transient(window2)
+            update_window.grab_set()
+            window2.wait_window(update_window)
+
+        def addEntry():
+            nonlocal db, cursor
+            add_window = Toplevel(window2)
+            add_window.title("Add New Entry")
+            add_window.geometry("300x200")
+
+            # Account
+            ttk.Label(add_window, text="Account:").pack(pady=(10,0))
+            account_entry = ttk.Entry(add_window, width=30)
+            account_entry.pack()
+            account_entry.focus()
+
+            # Username
+            ttk.Label(add_window, text="Username:").pack(pady=(10,0))
+            username_entry = ttk.Entry(add_window, width=30)
+            username_entry.pack()
+
+            # Password
+            ttk.Label(add_window, text="Password:").pack(pady=(10,0))
+            password_entry = ttk.Entry(add_window, width=30, show="*")
+            password_entry.pack()
+
+            def save_new_entry():
+                account = account_entry.get()
+                username = username_entry.get()
+                password = password_entry.get()
+
+                if not account or not username or not password:
+                    messagebox.showerror("Error", "All fields are required!", parent=add_window)
+                    return
+
+                encrypted_account = encrypt(account.encode('utf-8'), encryptionkey)
+                encrypted_username = encrypt(username.encode('utf-8'), encryptionkey)
+                encrypted_password = encrypt(password.encode('utf-8'), encryptionkey)
+
+                if not encrypted_account or not encrypted_username or not encrypted_password:
+                    messagebox.showerror("Encryption Error", "Failed to encrypt one or more fields.", parent=add_window)
+                    return
+
+                try:
+                    insert_fields = """INSERT INTO vault(ACCOUNT,USERNAME,PASSWORD)
+                    VALUES(?,?,?) """
+                    cursor.execute(insert_fields, (encrypted_account, encrypted_username, encrypted_password))
+                    db.commit()
+                    print("Inserted new entry:", account, username, password)
+                except Exception as e:
+                    print("Error inserting entry:", e)
+                    messagebox.showerror("DB Error", f"Error inserting entry: {e}", parent=add_window)
+                    return
+
+                add_window.destroy()
+                passwordvault()
+
+            save_btn = ttk.Button(add_window, text="Save", command=save_new_entry)
+            save_btn.pack(side="left", padx=(10, 5), pady=10)
+            
+            cancel_btn = ttk.Button(add_window, text="Cancel", command=add_window.destroy)
+            cancel_btn.pack(side="right", padx=(5, 10), pady=10)
+            
+            add_window.transient(window2)
+            add_window.grab_set()
+            window2.wait_window(add_window)
+
+        def removeEntry(input):
+            nonlocal db, cursor
+            cursor.execute("DELETE FROM vault WHERE id=?",(input,))
+            db.commit()
+            passwordvault()
+
+        window2.geometry("870x450")
+
+        lbl=ttk.Label(window2,text="[ Password Vault ]",font ='arial 15 bold')
+        lbl.grid(column=2,pady=20)
+
+        add_entry_btn=ttk.Button(window2,text="ADD ENTRY",command=addEntry)
+        add_entry_btn.grid(row=2,column=4,pady=10)
+        lbl=ttk.Label(window2,text="ACCOUNT",font=Font(family='arial 10 bold', size=10))
+        lbl.grid(row=2,column=0,padx=40)
+        lbl=ttk.Label(window2,text="USERNAME",font=Font(family='arial 10 bold', size=10))
+        lbl.grid(row=2,column=1,padx=40)
+        lbl=ttk.Label(window2,text="PASSWORD",font=Font(family='arial 10 bold', size=10))
+        lbl.grid(row=2,column=2,padx=40)
+        cursor.execute("SELECT id,ACCOUNT,USERNAME,PASSWORD FROM vault")
+        rows = cursor.fetchall()
+        print('Rows in vault:', rows)
+        if rows != None:
+            i=0
+            for row in rows:
+                try:
+                    acc = decrypt(row[1],encryptionkey)
+                    usr = decrypt(row[2],encryptionkey)
+                    pwd = decrypt(row[3],encryptionkey)
+                except Exception as e:
+                    print(f'Warning: Could not decrypt row {row[0]}: {e}')
+                    continue
+                acc_lab1=ttk.Label(window2,text=acc)
+                acc_lab1.grid(column=0,row=i+3)
+                ursm_lab1=ttk.Label(window2,text=usr)
+                ursm_lab1.grid(column=1,row=i+3)
+                pass_lab1=ttk.Label(window2,text='* '*len(pwd))
+                pass_lab1.grid(column=2,row=i+3)
+                class ToggleButton:
+                    def __init__(self, row, pass_lab1):
+                        self.row = row
+                        self.pass_lab1 = pass_lab1
+                        self.button = ttk.Button(window2, text="SHOW", command=self.toggle)
+                        self.button.grid(column=7, row=i+3, pady=5)
+                    def toggle(self):
+                        current_text = self.pass_lab1.cget("text")
+                        if current_text.startswith('*'):
+                            decrypted_pass = decrypt(self.row[3], encryptionkey).decode('utf-8')
+                            self.pass_lab1.config(text=decrypted_pass)
+                            self.button.config(text="HIDE")
+                        else:
+                            self.pass_lab1.config(text='* '*len((decrypt(self.row[3],encryptionkey )) ))
+                            self.button.config(text="SHOW")
+                toggle_handler = ToggleButton(row, pass_lab1)
+                dlete_btn=ttk.Button(window2,text="DELETE",command=partial(removeEntry,row[0]))
+                dlete_btn.grid(column=3,row=i+3,pady=5)
+                update_btn=ttk.Button(window2,text="UPDATE",command=partial(updateEntry,*row))
+                update_btn.grid(column=4,row=i+3,pady=5)
+                cpy_btn=ttk.Button(window2,text="COPY PASS",command=partial(copyPass,row[3]))
+                cpy_btn.grid(column=5,row=i+3,pady=5)
+                cpy_btn=ttk.Button(window2,text="COPY USERNAME",command=partial(copyursm,row[2]))
+                cpy_btn.grid(column=6,row=i+3,pady=10)
+                i+=1
+
+    cursor.execute('SELECT * FROM masterpassword')
+    if cursor.fetchall():
+        loginScreen()
+    else:
+        firstScreen()
+
+def disablebtn():
+    opnvault_btn['state']=DISABLED
+    openVault()
+
+# ===============================
+# UI Setup
+# ===============================
+heading = ttk.Label(window, text = 'Password Generator' , font ='arial 15 bold').pack(pady=10)
+
+letter_spinbox_label=ttk.Label(window,text="Select number of letters ",font=Font(family='arial 10 bold', size=10)).pack()
+letter_spinbox=ttk.Spinbox(window,from_=3,to=11,textvariable=no_of_letters,width=5,font=Font(family='Helvetica', size=12)).pack()
+
+digit_spinbox_label=ttk.Label(window,text="Select number of digits ",font=Font(family='arial 10 bold', size=10)).pack()
+digit_spinbox=ttk.Spinbox(window,from_=3,to=11,textvariable=no_of_digits,width=5,font=Font(family='Helvetica', size=12)).pack()
+
+symbol_spinbox_label=ttk.Label(window,text="Select number of symbols ",font=Font(family='arial 10 bold', size=10)).pack()
+symbol_spinbox=ttk.Spinbox(window,from_=3,to=11,textvariable=no_of_symbols,width=5,font=Font(family='Helvetica', size=12)).pack()
+
+generate_pass=ttk.Button(window, text = "GENERATE PASSWORD" , command = generate).pack(pady=10)
+
+ttk.Entry(window, textvariable=password_string).pack()
+ttk.Label(window, textvariable=strength_string, font=Font(family='arial 10 bold', size=10)).pack(pady=2)
+
+copy=ttk.Button(window, text = 'COPY', command = Copy_password,state=DISABLED)
+copy.pack(pady=10)
+
+opnvault_btn=ttk.Button(window,text="OPEN VAULT",command=disablebtn)
+opnvault_btn.pack(pady=10)
+
+# ===============================
+# Start Application
+# ===============================
+window.mainloop()
